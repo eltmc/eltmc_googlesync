@@ -1,0 +1,10 @@
+<?php
+
+function eltmc_googlesync_uninstall() {
+    variable_del('eltmc_googlesync_domain');
+    variable_del('eltmc_googlesync_consumerkey');
+    variable_del('eltmc_googlesync_consumersecret');
+    variable_del('eltmc_googlesync_access_token');
+    variable_del('eltmc_googlesync_dryrun');
+    variable_del('eltmc_googlesync_groups_admin');
+}

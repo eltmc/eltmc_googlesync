@@ -1,0 +1,528 @@
+<?php
+  // FIXME replace dpm with something more official
+// Add locally bundled libraries to include path, and include them.
+$eltmc_googlesync_module_libs = DRUPAL_ROOT .'/'. drupal_get_path('module', 'eltmc_googlesync') .'/libraries';
+if (FALSE == strpos(ini_get('include_path'), $eltmc_googlesync_module_libs)) {
+    if (!ini_set('include_path', ini_get('include_path') . ":$eltmc_googlesync_module_libs")) {
+        dpm("failed to change ini path to include Zend library");
+    }
+}
+require_once "Zend/Loader.php";
+
+// FIXME add means to dry-run changes.
+
+function _eltmc_googlesync_config() {
+    global $base_url;
+
+    Zend_Loader::loadClass('Zend_Oauth');
+    
+    $oauth_domain = variable_get('eltmc_googlesync_domain');
+    $oauth_consumerkey = variable_get('eltmc_googlesync_consumerkey');
+    $oauth_consumersecret = variable_get('eltmc_googlesync_consumersecret');
+    if (!isset($oauth_domain) || !isset($oauth_consumersecret) || !isset($oauth_consumerkey))
+        return null;
+
+    $oauth_scopes = array("https://apps-apis.google.com/a/feeds/groups/",
+                          "https://apps-apis.google.com/a/feeds/user/",
+                          "https://apps-apis.google.com/a/feeds/alias/"); // FIXME do we really need users access?
+    
+    $oauth_config = array(
+        'requestScheme' => Zend_Oauth::REQUEST_SCHEME_HEADER,
+        'version' => '1.0',
+        'signatureMethod' => 'HMAC-SHA1',
+        'callbackUrl' => "$base_url/admin/config/services/eltmc_googlesync",
+        'requestTokenUrl' => 'https://www.google.com/accounts/OAuthGetRequestToken',
+        'userAuthorizationUrl' => 'https://www.google.com/accounts/OAuthAuthorizeToken',
+        'accessTokenUrl' => 'https://www.google.com/accounts/OAuthGetAccessToken',
+        'consumerKey' => $oauth_consumerkey,
+        'consumerSecret' => $oauth_consumersecret,
+        );
+
+    return array(
+        'oauth_config' => $oauth_config,
+        'scopes' => $oauth_scopes,
+        'domain' => $oauth_domain
+        );
+}
+
+
+/**
+ * Implements hook_menu
+ */
+function eltmc_googlesync_menu() {
+    
+    $items = array();
+    
+    $items['admin/config/services/eltmc_googlesync'] = array(
+        'title' => 'ELTMC Google Sync module settings',
+        'description' => 'Configure synchronisation',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('eltmc_googlesync_admin_form'),
+        'access arguments' => array('access administration pages'),
+        'type' => MENU_NORMAL_ITEM,
+        );
+    
+    return $items;
+}
+
+/**
+ * Define the configuration form
+ */
+function eltmc_googlesync_admin_form() {
+
+    $access_token = variable_get('eltmc_googlesync_access_token');
+    if ($access_token) {
+        Zend_Loader::loadClass('Zend_Oauth_Token_Access');
+        $access_token = unserialize($access_token)->getToken();
+        $access_token_note = t("An access token is currently set (public key: $access_token).");
+    }
+    else {
+        $access_token_note = t('An access token is currently <i>not</i> set.');
+    }
+
+    $form = array(
+      'eltmc_googlesync_manage_domains' => array(
+          '#markup' => t("Before configuring this module, you will need to create a Google Apps ".
+                         "domain, which at the time of writing are unfortunatly no longer free ".
+                         "(see <a href='http://support.google.com/a/bin/answer.py?hl=en&answer=2855120'>".
+                         "here</a> for some more information).  You then need to add it to your ".
+                         "managed domains at <a href='https://accounts.google.com/ManageDomains'>".
+                         "https://accounts.google.com/ManageDomains</a>, and follow the steps to ".
+                         "obtain a Consumer Secret and Consumer Key."),
+          ),
+      'eltmc_googlesync_domain' => array(
+          '#type' => 'textfield',
+          '#title' => t('Google Apps domain name'),
+          '#default_value' => variable_get('eltmc_googlesync_domain', ''),
+          '#size' => 50,
+          '#maxlength' => 100,
+          '#description' => t("The name of your Google Apps domain"),
+          '#required' => TRUE,
+          ),
+      'eltmc_googlesync_consumerkey' => array(
+          '#type' => 'textfield',
+          '#title' => t('Google Apps Consumer Key'),
+          '#default_value' => variable_get('eltmc_googlesync_consumerkey', ''),
+          '#size' => 50,
+          '#maxlength' => 100,
+          '#description' => t("The 'OAuth Consumer Key' obtained from Google Apps."),
+          '#required' => TRUE,
+          ),
+      'eltmc_googlesync_consumersecret' => array(
+          '#type' => 'textfield',
+          '#title' => t('Google Apps Consumer Secret'),
+          '#default_value' => variable_get('eltmc_googlesync_consumersecret', ''),
+          '#size' => 50,
+          '#maxlength' => 100,
+          '#description' => t("The 'OAuth Consumer Secret' obtained from Google Apps."),
+          '#required' => TRUE,
+          ),
+      'eltmc_googlesync_groups_admin' => array(
+          '#type' => 'textfield',
+          '#title' => t('The groups admin email address.'),
+          '#default_value' => variable_get('eltmc_googlesync_groups_admin', ''),
+          '#size' => 50,
+          '#maxlength' => 100,
+          '#description' => t("If set, all groups will have this email address set as owner."),
+          '#required' => FALSE,
+          ),
+      'eltmc_googlesync_dryrun' => array(
+          '#type' => 'checkbox',
+          '#title' => t("Dry-run mode."),
+          '#default_value' => variable_get('eltmc_googlesync_dryrun', true),
+          '#description' => t("If checked, the module's action, when executed, won't actually modify the groups, just log what it would have done"),
+          '#required' => FALSE,
+          ),      
+      'eltmc_googlesync_access_token_note' => array(
+          '#markup' => $access_token_note,
+          ),
+      'eltmc_googlesync_access_token_refresh' => array(
+          '#markup' => t(" Clicking 'Save Configuration' will refresh the authorization token."),
+          ),
+      );
+
+// FIXME add help explaining how to get the secret etc.
+
+  return system_settings_form($form);
+}
+
+/**
+ * performs a redirect on submission of the config settings form
+ * http://drupal.stackexchange.com/questions/33658/how-to-redirect-according-to-url-parameter-after-form-submission
+ */
+function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
+    dpm("hello!... $form_id ");
+    if ($form_id != 'eltmc_googlesync_admin_form')
+        return;
+
+    Zend_Loader::loadClass('Zend_Oauth_Token');
+    if (isset($_GET[Zend_Oauth_Token::TOKEN_PARAM_KEY])) {
+        dpm("now inside ".Zend_Oauth_Token::TOKEN_PARAM_KEY. "=".$_GET[Zend_Oauth_Token::TOKEN_PARAM_KEY]);
+        if (isset($_SESSION['GOOGLE_REQUEST_TOKEN'])) {
+            Zend_Loader::loadClass('Zend_Oauth_Consumer');
+            $config = _eltmc_googlesync_config();
+            if (!$config) {
+                dpm("not configured yet, skipping access token transaction");
+                return;
+            }
+            
+            $rtoken = unserialize($_SESSION['GOOGLE_REQUEST_TOKEN']);
+            dpm("got request ". $_SESSION['GOOGLE_REQUEST_TOKEN']);
+
+            $consumer = new Zend_Oauth_Consumer($config['oauth_config']);
+
+            $atoken = $consumer->getAccessToken($_GET, $rtoken);
+            
+            variable_set('eltmc_googlesync_access_token', serialize($atoken));
+            
+            // Now that we have an Access Token, we can discard the Request Token
+            $_SESSION['GOOGLE_REQUEST_TOKEN'] = null;
+        }
+        else {
+            // Mistaken request? Some malfeasant trying something?
+            // FIXME be more drupal friendly, use an appropriate api call
+            exit('Invalid callback request. Oops. Sorry.'  .print_r($_GET, true));
+        }
+    }
+            
+
+
+    // Call this custom handler on submit:
+    $form['#submit'][] = 'eltmc_googlesync_request_access_token';
+}
+
+function eltmc_googlesync_request_access_token(&$form, &$form_state) {
+
+// FIXME catch exception from getAccessToken
+  
+    dpm("hellp eltmc_googlesync_request_access_token");
+
+    Zend_Loader::loadClass('Zend_Oauth_Consumer');
+    $config = _eltmc_googlesync_config();
+    if (!$config) {
+        dpm("not configured yet, skipping form_alter");
+        return;
+    }
+
+    $consumer = new Zend_Oauth_Consumer($config['oauth_config']);
+
+    // Prepare for another request.  Fetch a request token
+    dpm(print_r($config, true));
+
+    // Catch error Zend_Oauth_Exception, indicates some problem.
+    try {
+        $token = $consumer->getRequestToken(array('scope' => implode(' ', $config['scopes'])));
+
+        // Persist the token in the session
+        $_SESSION['GOOGLE_REQUEST_TOKEN'] = serialize($token);
+        
+        dpm("setting requst token ". $_SESSION['GOOGLE_REQUEST_TOKEN']);
+        
+        // Set the form to redirect the user to Google with a request
+        // token on submission.
+        // See http://drupal.org/node/134000#comment-5638958
+        $url = $consumer->getRedirectUrl(array('hd' => $config['domain']));
+        dpm("requesting redirecto to $url");
+        $form_state['redirect'] = array(
+            $url,
+            array('external' => TRUE)
+            );
+    }
+    catch(Zend_Oauth_Exception $ex) {
+        dpm("failed to get request token:\n".$ex);
+    }
+    
+}
+
+
+
+/**
+ * Implements hook_action_info().
+ */
+function eltmc_googlesync_action_info() {
+    return array(
+        'eltmc_googlesync_sync_groups_to_committee' => array(
+            'label' => t('Synchronise the Google App domain email groups with the current committee occupants.'),
+            'type' => 'system',
+            'configurable' => FALSE,
+            'triggers' => array('any'),
+            ),
+        );
+} 
+
+
+/**
+ * Find users with a given role.
+ * Adapted from http://drupal.stackexchange.com/questions/11175/get-all-users-with-specific-roles-using-entityfieldquery
+ *
+ * @param $role mixed The name or rid of the role we're wanting users to have
+ * @param $active_user boolean Only return active accounts?
+ *
+ * @return array An array of user objects with the role
+ */
+function _eltmc_googlesync_uids_with_role($role, $active_user = TRUE) {
+    $uids = array();
+    $users = array();
+    if (is_int($role)) {
+        $my_rid = $role;
+    }
+    else {
+        $role = user_role_load_by_name($role);
+        $my_rid = $role->rid;
+    }
+    $result = db_select('users_roles', 'ur')
+    ->fields('ur', array('uid'))
+    ->condition('ur.rid', $my_rid, '=')
+    ->execute();
+
+    return $result->fetchCol();
+}
+
+
+
+/**
+ * Log in using $username, $password, into Google apps domain $domain.
+ * If fails, throws a Zend_Gdata_App_AuthException .
+ * If it succeeds, it returns a Zend_Gdata_Gapps instance.
+ * Currently not used.
+ */
+function _eltmc_googlesync_get_client_login_client($username, $domain, $password) {
+    Zend_Loader::loadClass('Zend_Gdata_ClientLogin');
+    Zend_Loader::loadClass('Zend_Gdata_Gapps');
+
+    // Try to login. If login fails, log the user out and display an
+    // error message.
+    $service = Zend_Gdata_Gapps::AUTH_SERVICE_NAME;
+    $client = Zend_Gdata_ClientLogin::getHttpClient("$username@$domain", $password, $service);
+    $gapps = new Zend_Gdata_Gapps($client, $domain);
+    return $gapps;
+}
+
+/**
+ * Generate a client instance using a serialised access token stored in $token_file
+ * and the configuration $config (describe this).
+ * If fails, throws a (Zend_Gdata_App_AuthException?).
+ * If it succeeds, it returns a Zend_Gdata_Gapps instance.
+ */
+function _eltmc_googlesync_oauth_client($config) {
+    Zend_Loader::loadClass('Zend_Oauth_Token_Access');
+    Zend_Loader::loadClass('Zend_Gdata_Gapps');
+
+    $token = unserialize(variable_get('eltmc_googlesync_access_token'));
+
+    $client = $token->getHttpClient($config['oauth_config']);
+    $gapps = new Zend_Gdata_Gapps($client, $config['domain']);
+    return $gapps;
+}
+
+
+
+
+/**
+ * Perform the synchronisation
+ */
+function eltmc_googlesync_sync_groups_to_committee() {
+    Zend_Loader::loadClass('Zend_Gdata');
+
+    $config = _eltmc_googlesync_config();
+    if (!$config) {
+        dpm("not configured yet, skipping sync"); // FIXME
+        return;
+    }
+
+    $gapps = _eltmc_googlesync_oauth_client($config);
+    $domain = strtolower(variable_get('eltmc_googlesync_domain', ''));
+
+    // Get the user accounts and aliases
+    // FIXME these require extra scope
+    $gapps_emails = array();
+    $gapps_user_list = $gapps->retrieveAllUsers();
+    foreach ($gapps_user_list as $user) {
+        $addr = strtolower($user->login->username);
+        $gapps_emails["$addr@$domain"] = $addr;
+    }
+    $gapps_alias_list = $gapps->retrieveAllNicknames();
+    foreach ($gapps_alias_list as $alias) {
+        $addr = strtolower($alias->nickname->name);
+        $gapps_emails["$addr@$domain"] = $addr;
+    }
+
+    // Get the groups and membership information from Google Apps into a hash of hashes $gapps_groups
+    $gapps_group_list = $gapps->retrieveAllGroups();
+    $gapps_groups = array();
+    foreach($gapps_group_list->entry as $group) {
+        $group_id = '';
+        foreach($group->property as $prop) {
+            switch ($prop->name) {
+            case 'groupId':
+                $group_id = strtolower($prop->value);
+                $gapps_groups[$group_id] = array();
+                break;
+            }
+        }
+
+        $member_list = $gapps->retrieveAllMembers($group_id);
+        //dpm("group id $group_id: ".print_r($member_list, true)); // DEBUG
+        foreach($member_list as $member) {
+            $member_email = '';
+            foreach($member->property as $prop) {
+                switch ($prop->name) {
+                case 'memberId':
+                    $member_email = strtolower($prop->value);
+                    $gapps_groups[$group_id][$member_email] = true;
+                    break;
+                }
+            }
+        }
+    }
+    dpm(print_r($gapps_groups, true)); // DEBUG
+
+
+    // Create an array $group_admins whose keys are the group admin(s).
+    // For now, we just allow a single (optional) shared group admin.
+    $groups_admin = strtolower(variable_get('eltmc_googlesync_groups_admin', ''));
+    $group_admins = array();
+    if ($groups_admin) $group_admins[$groups_admin] = true;
+
+
+    // Get the Committee's UIDs 
+    $uids = _eltmc_googlesync_uids_with_role('committee');
+
+    // Get their email addresses and comittee roles into a hash-of-hashes $groups
+    $groups = array();
+    foreach ($uids as $uid) {
+        $user = user_load($uid);
+        $profile = profile2_load_by_user($uid, 'committee_profile');
+        if (!$profile) continue;
+        
+        $items = field_get_items('profile2', $profile, 'field_committee_roles');
+        if (!$items) continue;
+
+        foreach($items as $c_role) {
+            $node = node_load($c_role['target_id']);
+            $items2 = field_get_items('node', $node, 'field_email_address');
+            if (!$items2) continue;
+
+            $group_name  = $long_group_name = strtolower($items2[0]['email']);
+            $groups[$group_name][strtolower($user->mail)] = true;
+
+	    // FIXME we should probably check the domain of the group email is our domain
+        }
+    }
+
+    // Add the administrator as a member of all groups
+    foreach($groups as $name => $group) {
+        $groups[$name][$groups_admin] = true;      
+    }
+
+    dpm(print_r($groups, true)); // DEBUG
+    $dryrun = variable_get('eltmc_googlesync_dryrun');
+
+    $delta = array();
+
+    // Add any new groups/memberships into Google
+    foreach ($groups as $group => $users) {
+
+        // Skip groups which have the same name as a user account
+        // (we can't define a group for those)
+        if (array_key_exists($group, $gapps_emails)) {
+            $delta[$group]['MODIFICATION'] = 'not created as it is in use by a user account or alias';
+            continue;
+        }
+
+        if (!array_key_exists($group, $gapps_groups)) {
+            $delta[$group]['MODIFICATION'] = 'created';
+            $gapps_groups[$group] = array();
+            if (!$dryrun) $gapps->createGroup($group);
+        }
+
+        foreach ($users as $user => $ignored) {
+            if (array_key_exists($user, $gapps_groups[$group]))
+                continue;
+
+            if (!array_key_exists($group, $delta) || !array_key_exists('MODIFICATION', $delta[$group]))
+                $delta[$group]['MODIFICATION'] = 'modified';
+
+            // If the user is in the $groups_admin array, make them an owner
+            if (array_key_exists($user, $group_admins)) {
+                $delta[$group][$user] = 'added as an owner';
+                if (!$dryrun) $gapps->addOwnerToGroup($user, $group);
+            }
+            else {
+                // Just make them a normal member
+                $delta[$group][$user] = 'added as a member';
+                if (!$dryrun) $gapps->addMemberToGroup($user, $group);
+            }
+        }
+    }
+
+    // Delete groups/memberships which no longer exist from Google
+    foreach ($gapps_groups as $group => $users) {
+
+        // Skip groups which have the same name as a user account
+        // (we can't delete a group for those)
+        if (array_key_exists($group, $gapps_emails)) {
+            $delta[$group]['MODIFICATION'] = 'not deleted as it is in use by a user account or alias';
+            continue;
+        }
+
+	if (!array_key_exists($group, $groups)) {
+	    $delta[$group]['MODIFICATION'] = 'removed';
+	    if (!$dryrun) $gapps->deleteGroup($group);
+	    continue;
+	}
+
+        foreach ($users as $user => $ignored) {
+            if (!array_key_exists($user, $groups[$group])) {            
+                $delta[$group][$user] = 'removed';
+                if (!$dryrun) $gapps->removeMemberFromGroup($user, $group);
+            }
+            elseif (array_key_exists($user, $group_admins) && !$gapps->isOwner($user, $group)) {
+                // Promote user to owner
+		$delta[$group][$user] = 'promoted to owner';
+		if (!$dryrun) $gapps->addOwnerToGroup($user, $group);
+	    }
+	    elseif(!array_key_exists($user, $group_admins) && $gapps->isOwner($user, $group)) {
+                // Demote user from owner
+		$delta[$group][$user] = 'demoted to ordinary member';
+		if (!$dryrun) $gapps->removeOwnerFromGroup($user, $group);
+	    }
+	    else {
+		// Skip the rest of this loop body
+		continue;
+            }
+
+            if (!array_key_exists($group, $delta) || !array_key_exists('MODIFICATION', $delta[$group]))
+                $delta[$group]['MODIFICATION'] = 'modified';
+        }
+    }
+
+    # HTMLise the $delta entries. Report the changes.
+    ksort($delta);
+    $log = '<ul>';
+    foreach($delta as $group => $groupdelta) {
+        $group = t($group);
+        $modification = array_key_exists('MODIFICATION', $groupdelta)?
+            $groupdelta['MODIFICATION'] : '';
+        unset($groupdelta['MODIFICATION']);
+        
+        $log .= "<li> Group $group $modification</li>";
+
+        if (count($groupdelta) > 0) {
+            $log .= '<ul>';
+            foreach($groupdelta as $user => $modification) {
+                $user = t($user);
+
+                $log .= "<li> User $user $modification</li>"; 
+            }
+            $log .= '</ul>';
+        }
+    }
+    $log .= '</ul>';
+
+    watchdog('eltmc_googlesync', "<p>!modified Google Group configurations:</p><ul>!actions</ul>",
+             array('!actions' => $log,
+                   '!modified' => $dryrun? "<i>Dry-run</i>: would have modified" : "Modified"));
+}
+
+
