@@ -1,15 +1,12 @@
-<?php
-  // FIXME replace dpm with something more official
+<?php // -*- php -*-
 // Add locally bundled libraries to include path, and include them.
 $eltmc_googlesync_module_libs = DRUPAL_ROOT .'/'. drupal_get_path('module', 'eltmc_googlesync') .'/libraries';
 if (FALSE == strpos(ini_get('include_path'), $eltmc_googlesync_module_libs)) {
     if (!ini_set('include_path', ini_get('include_path') . ":$eltmc_googlesync_module_libs")) {
-        dpm("failed to change ini path to include Zend library");
+        watchdog('eltmc_googlesync', "<p>Failed to change ini path to include Zend library</p>");
     }
 }
 require_once "Zend/Loader.php";
-
-// FIXME add means to dry-run changes.
 
 function _eltmc_googlesync_config() {
     global $base_url;
@@ -22,9 +19,11 @@ function _eltmc_googlesync_config() {
     if (!isset($oauth_domain) || !isset($oauth_consumersecret) || !isset($oauth_consumerkey))
         return null;
 
+    // Note, alias and users access required to check if any aliases or user accounts are using
+    // the emails we'd otherwise assign to a group.
     $oauth_scopes = array("https://apps-apis.google.com/a/feeds/groups/",
                           "https://apps-apis.google.com/a/feeds/user/",
-                          "https://apps-apis.google.com/a/feeds/alias/"); // FIXME do we really need users access?
+                          "https://apps-apis.google.com/a/feeds/alias/");
     
     $oauth_config = array(
         'requestScheme' => Zend_Oauth::REQUEST_SCHEME_HEADER,
@@ -151,27 +150,34 @@ function eltmc_googlesync_admin_form() {
  * http://drupal.stackexchange.com/questions/33658/how-to-redirect-according-to-url-parameter-after-form-submission
  */
 function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
-    dpm("hello!... $form_id ");
     if ($form_id != 'eltmc_googlesync_admin_form')
         return;
 
     Zend_Loader::loadClass('Zend_Oauth_Token');
     if (isset($_GET[Zend_Oauth_Token::TOKEN_PARAM_KEY])) {
-        dpm("now inside ".Zend_Oauth_Token::TOKEN_PARAM_KEY. "=".$_GET[Zend_Oauth_Token::TOKEN_PARAM_KEY]);
         if (isset($_SESSION['GOOGLE_REQUEST_TOKEN'])) {
             Zend_Loader::loadClass('Zend_Oauth_Consumer');
             $config = _eltmc_googlesync_config();
             if (!$config) {
-                dpm("not configured yet, skipping access token transaction");
+		watchdog('eltmc_googlesync', "<p>Not yet configured, skipping access token transaction</p>");
                 return;
             }
             
             $rtoken = unserialize($_SESSION['GOOGLE_REQUEST_TOKEN']);
-            dpm("got request ". $_SESSION['GOOGLE_REQUEST_TOKEN']);
+//            dpm("got request ". $_SESSION['GOOGLE_REQUEST_TOKEN']); // DEBUG
 
-            $consumer = new Zend_Oauth_Consumer($config['oauth_config']);
+	    try {
+		$consumer = new Zend_Oauth_Consumer($config['oauth_config']);
 
-            $atoken = $consumer->getAccessToken($_GET, $rtoken);
+		$atoken = $consumer->getAccessToken($_GET, $rtoken);
+	    }
+	    catch(Excption $ex) {
+		$message = t("<p>Error getting OAuth access token from URL parameters, aborting transaction. Exception was</p><pre>%exception</pre> "
+			     array('%exception' => $ex));
+		watchdog('eltmc_googlesync', $message);
+		drupal_set_message($message, 'error');
+		return;
+	    }
             
             variable_set('eltmc_googlesync_access_token', serialize($atoken));
             
@@ -179,9 +185,12 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
             $_SESSION['GOOGLE_REQUEST_TOKEN'] = null;
         }
         else {
-            // Mistaken request? Some malfeasant trying something?
-            // FIXME be more drupal friendly, use an appropriate api call
-            exit('Invalid callback request. Oops. Sorry.'  .print_r($_GET, true));
+	    $message = t("<p>Invalid callback request from %referrer, '%param' parameter was set but <b>GOOGLE_REQUEST_TOKEN</b> cookie was not. Ignoring.</p>",
+			 array('%param' => Zend_Oauth_Token::TOKEN_PARAM_KEY,
+			       '%referrer' => $_SERVER['HTTP_REFERER']));
+	    watchdog('eltmc_googlesync', $message);
+	    drupal_set_message($message, 'error');
+	    return;
         }
     }
             
@@ -192,22 +201,19 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
 }
 
 function eltmc_googlesync_request_access_token(&$form, &$form_state) {
-
-// FIXME catch exception from getAccessToken
   
-    dpm("hellp eltmc_googlesync_request_access_token");
+//    dpm("hello eltmc_googlesync_request_access_token"); // DEBUG
 
     Zend_Loader::loadClass('Zend_Oauth_Consumer');
     $config = _eltmc_googlesync_config();
     if (!$config) {
-        dpm("not configured yet, skipping form_alter");
+	watchdog('eltmc_googlesync', "<p>Not yet configured, skipping access token transaction</p>");
         return;
     }
 
     $consumer = new Zend_Oauth_Consumer($config['oauth_config']);
 
     // Prepare for another request.  Fetch a request token
-    dpm(print_r($config, true));
 
     // Catch error Zend_Oauth_Exception, indicates some problem.
     try {
@@ -216,20 +222,20 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
         // Persist the token in the session
         $_SESSION['GOOGLE_REQUEST_TOKEN'] = serialize($token);
         
-        dpm("setting requst token ". $_SESSION['GOOGLE_REQUEST_TOKEN']);
-        
         // Set the form to redirect the user to Google with a request
         // token on submission.
         // See http://drupal.org/node/134000#comment-5638958
         $url = $consumer->getRedirectUrl(array('hd' => $config['domain']));
-        dpm("requesting redirecto to $url");
         $form_state['redirect'] = array(
             $url,
             array('external' => TRUE)
             );
     }
     catch(Zend_Oauth_Exception $ex) {
-        dpm("failed to get request token:\n".$ex);
+	$message = t('eltmc_googlesync', "<p>Failed to get request token:</p><pre>%exception</pre>" 
+		     array('%exception' => $ex));
+	watchdog($message);
+	drupal_set_message($message, 'error');
     }
     
 }
@@ -326,7 +332,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
 
     $config = _eltmc_googlesync_config();
     if (!$config) {
-        dpm("not configured yet, skipping sync"); // FIXME
+	watchdog('eltmc_googlesync', "<p>Not yet configured, skipping group sync</p>");
         return;
     }
 
@@ -334,7 +340,8 @@ function eltmc_googlesync_sync_groups_to_committee() {
     $domain = strtolower(variable_get('eltmc_googlesync_domain', ''));
 
     // Get the user accounts and aliases
-    // FIXME these require extra scope
+    // These require extra acccess rights, hence the aliases and users scopes added
+    // to the oauth request above.
     $gapps_emails = array();
     $gapps_user_list = $gapps->retrieveAllUsers();
     foreach ($gapps_user_list as $user) {
@@ -375,7 +382,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
             }
         }
     }
-    dpm(print_r($gapps_groups, true)); // DEBUG
+//    dpm(print_r($gapps_groups, true)); // DEBUG
 
 
     // Create an array $group_admins whose keys are the group admin(s).
@@ -415,7 +422,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
         $groups[$name][$groups_admin] = true;      
     }
 
-    dpm(print_r($groups, true)); // DEBUG
+//    dpm(print_r($groups, true)); // DEBUG
     $dryrun = variable_get('eltmc_googlesync_dryrun');
 
     $delta = array();
