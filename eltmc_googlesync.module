@@ -73,7 +73,8 @@ function eltmc_googlesync_admin_form() {
     if ($access_token) {
         Zend_Loader::loadClass('Zend_Oauth_Token_Access');
         $access_token = unserialize($access_token)->getToken();
-        $access_token_note = t("An access token is currently set (public key: $access_token).");
+        $access_token_note = t("An access token is currently set (public key: %token).",
+			       array('%token' => $access_token));
     }
     else {
         $access_token_note = t('An access token is currently <i>not</i> set.');
@@ -132,11 +133,14 @@ function eltmc_googlesync_admin_form() {
           '#description' => t("If checked, the module's action, when executed, won't actually modify the groups, just log what it would have done"),
           '#required' => FALSE,
           ),      
-      'eltmc_googlesync_access_token_note' => array(
-          '#markup' => $access_token_note,
+      'eltmc_googlesync_action_note' => array(
+          '#markup' => "<p>You can bind the <i>eltmc_googlesync_sync_groups_to_committee_action</i> ".
+	  "to a trigger <a href='/admin/config/system/actions'>here</a>, ".
+	  "or if the <a href='http://drupal.org/project/rules'>Rules</a> module is installed, ".
+	  "probably more flexibly use that instead.</p>"
           ),
-      'eltmc_googlesync_access_token_refresh' => array(
-          '#markup' => t(" Clicking 'Save Configuration' will refresh the authorization token."),
+      'eltmc_googlesync_access_token_note' => array(
+          '#markup' => "<p>$access_token_note <b>Clicking 'Save' will refresh the authorization token.</b></p>"
           ),
       );
 
@@ -153,6 +157,31 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
     if ($form_id != 'eltmc_googlesync_admin_form')
         return;
 
+    ## Add our handler to the default submit handlers
+    $form['#submit'][] = 'eltmc_googlesync_request_access_token';
+
+    // Bind the 'Save' submit button to this handler, which re-uses the default #submit handlers,
+    // and add an 'Update' button to trigger the action manually.
+    $form['actions'] = array(
+	'#type' => 'actions',
+	'save' => array(
+	    '#type' => 'submit',
+	    '#value' => 'Save and Refresh Token',
+	    '#submit' => $form['#submit'],
+	    ),
+	'update' => array(
+	    '#type' => 'submit',
+	    '#value' => 'Update Google Now',
+	    '#submit' => array('eltmc_googlesync_update_google_handler'),
+	    ),
+	);
+
+    // Clear the default handler on the form itself.
+    unset($form['#submit']);
+
+
+    // If we appear to have returned to the form with an access token, attempt to
+    // obtain it and save it.
     Zend_Loader::loadClass('Zend_Oauth_Token');
     if (isset($_GET[Zend_Oauth_Token::TOKEN_PARAM_KEY])) {
         if (isset($_SESSION['GOOGLE_REQUEST_TOKEN'])) {
@@ -172,7 +201,7 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
 		$atoken = $consumer->getAccessToken($_GET, $rtoken);
 	    }
 	    catch(Excption $ex) {
-		$message = t("<p>Error getting OAuth access token from URL parameters, aborting transaction. Exception was</p><pre>%exception</pre> "
+		$message = t("<p>Error getting OAuth access token from URL parameters, aborting transaction. Exception was</p><pre>%exception</pre> ",
 			     array('%exception' => $ex));
 		watchdog('eltmc_googlesync', $message);
 		drupal_set_message($message, 'error');
@@ -185,24 +214,31 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
             $_SESSION['GOOGLE_REQUEST_TOKEN'] = null;
         }
         else {
-	    $message = t("<p>Invalid callback request from %referrer, '%param' parameter was set but <b>GOOGLE_REQUEST_TOKEN</b> cookie was not. Ignoring.</p>",
-			 array('%param' => Zend_Oauth_Token::TOKEN_PARAM_KEY,
-			       '%referrer' => $_SERVER['HTTP_REFERER']));
-	    watchdog('eltmc_googlesync', $message);
-	    drupal_set_message($message, 'error');
+	    watchdog('eltmc_googlesync',
+		     "<p>Invalid callback request from %referrer, '%param' parameter ".
+		     "was set but <b>GOOGLE_REQUEST_TOKEN</b> cookie was not. ".
+		     "This may happen when clicking 'Update' after saving and refreshing ".
+		     "the authorisation token, or (just possibly) it might be some ".
+		     "sort of monkey business. Ignoring in any case.</p>",
+		     array('%param' => Zend_Oauth_Token::TOKEN_PARAM_KEY,
+			   '%referrer' => $_SERVER['HTTP_REFERER']));
+
+	    // Note, what I'd really like to do to to get rid of this
+	    // case is to get Drupal to redirect to the same URL minus
+	    // the GET parameters after Google redirects back to it
+	    // with the authorization token encoded in the URL query.
+	    // Unfortunately I don't currently know of a way to do
+	    // that.
+	    //
+	    // (Apparently Google's redirect has to be a GET because a
+	    // redirect can't be anything else).
 	    return;
         }
     }
-            
-
-
-    // Call this custom handler on submit:
-    $form['#submit'][] = 'eltmc_googlesync_request_access_token';
 }
 
+
 function eltmc_googlesync_request_access_token(&$form, &$form_state) {
-  
-//    dpm("hello eltmc_googlesync_request_access_token"); // DEBUG
 
     Zend_Loader::loadClass('Zend_Oauth_Consumer');
     $config = _eltmc_googlesync_config();
@@ -211,12 +247,11 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
         return;
     }
 
-    $consumer = new Zend_Oauth_Consumer($config['oauth_config']);
-
-    // Prepare for another request.  Fetch a request token
-
-    // Catch error Zend_Oauth_Exception, indicates some problem.
+    // Prepare for another request by fetching a request token, then
+    // redirect to Google to perform the request.  We need to catch
+    // errors from Zend_Oauth_Exception.
     try {
+	$consumer = new Zend_Oauth_Consumer($config['oauth_config']);
         $token = $consumer->getRequestToken(array('scope' => implode(' ', $config['scopes'])));
 
         // Persist the token in the session
@@ -226,18 +261,23 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
         // token on submission.
         // See http://drupal.org/node/134000#comment-5638958
         $url = $consumer->getRedirectUrl(array('hd' => $config['domain']));
-        $form_state['redirect'] = array(
-            $url,
-            array('external' => TRUE)
-            );
+
+	if (!isset($url)) {
+	    throw new Exception("no redirection URL returned by OAuth token request");
+	}
+
+	$form_state['redirect'] = array(
+	    $url,
+	    array('external' => TRUE)
+	    );
+	return $url;
     }
     catch(Zend_Oauth_Exception $ex) {
-	$message = t('eltmc_googlesync', "<p>Failed to get request token:</p><pre>%exception</pre>" 
+	$message = t('eltmc_googlesync', "<p>Failed to get request token:</p><pre>%exception</pre>",
 		     array('%exception' => $ex));
 	watchdog($message);
 	drupal_set_message($message, 'error');
     }
-    
 }
 
 
@@ -247,7 +287,7 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
  */
 function eltmc_googlesync_action_info() {
     return array(
-        'eltmc_googlesync_sync_groups_to_committee' => array(
+        'eltmc_googlesync_sync_groups_to_committee_action' => array(
             'label' => t('Synchronise the Google App domain email groups with the current committee occupants.'),
             'type' => 'system',
             'configurable' => FALSE,
@@ -322,10 +362,29 @@ function _eltmc_googlesync_oauth_client($config) {
 }
 
 
+/**
+ * This implements the action which perform the synchronisation.
+ * Essentially it just invokes the function which does the job and logs the result.
+ */
+function eltmc_googlesync_sync_groups_to_committee_action() {
+    $message = eltmc_googlesync_sync_groups_to_committee();
+    watchdog('eltmc_googlesync', $message);
+}
+
+/** 
+ * This method is a form handler which will invoke the sync action and show the output
+ * as well as log it.
+ */
+function eltmc_googlesync_update_google_handler(&$form, &$form_state) {
+
+    $message = eltmc_googlesync_sync_groups_to_committee();
+    watchdog('eltmc_googlesync', $message);
+    drupal_set_message($message, 'status');
+}
 
 
 /**
- * Perform the synchronisation
+ * This actually performs the synchronisation
  */
 function eltmc_googlesync_sync_groups_to_committee() {
     Zend_Loader::loadClass('Zend_Gdata');
@@ -527,9 +586,11 @@ function eltmc_googlesync_sync_groups_to_committee() {
     }
     $log .= '</ul>';
 
-    watchdog('eltmc_googlesync', "<p>!modified Google Group configurations:</p><ul>!actions</ul>",
-             array('!actions' => $log,
-                   '!modified' => $dryrun? "<i>Dry-run</i>: would have modified" : "Modified"));
+    $message = t("<p>!modified Google Group configurations:</p><ul>!actions</ul>",
+		 array('!actions' => $log,
+		       '!modified' => $dryrun? "<i>Dry-run</i>: would have modified" : "Modified"));
+
+    return $message;
 }
 
 
