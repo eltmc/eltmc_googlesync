@@ -592,7 +592,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
 		    
 		    if (!$dryrun) $gapps->removeMemberFromGroup($user, $group_name);
 		}
-		elseif (array_key_exists($user, $group_admins) && !$gapps->isOwner($user, $group_admins)) {
+		elseif (array_key_exists($user, $group_admins) && !$gapps->isOwner($user, $group_name)) {
 		    // Promote user to owner
 		    $delta[$group][$user] = 'promoted to owner';
 		    if (!$dryrun) $gapps->addOwnerToGroup($user, $group_name);
