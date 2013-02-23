@@ -45,6 +45,19 @@ function _eltmc_googlesync_config() {
 }
 
 
+function _eltmc_googlesync_get_email_name($email) {
+    $name = preg_match('/^(.*)@/', $email, $matches);
+    return $matches[1];
+}
+
+function _eltmc_googlesync_endswith($string, $test) {
+    $strlen = strlen($string);
+    $testlen = strlen($test);
+    if ($testlen > $strlen) return false;
+    return substr_compare($string, $test, -$testlen) === 0;
+}
+
+
 /**
  * Implements hook_menu
  */
@@ -397,6 +410,54 @@ function eltmc_googlesync_sync_groups_to_committee() {
 
     $gapps = _eltmc_googlesync_oauth_client($config);
     $domain = strtolower(variable_get('eltmc_googlesync_domain', ''));
+    
+    // Create an array $group_admins whose keys are the group admin(s).
+    // For now, we just allow a single (optional) shared group admin.
+    $groups_admin = strtolower(variable_get('eltmc_googlesync_groups_admin', ''));
+    $group_admins = array();
+    if ($groups_admin) $group_admins[$groups_admin] = true;
+
+
+    // Get the Committee's UIDs 
+    $uids = _eltmc_googlesync_uids_with_role('committee');
+    $errors = array();
+
+    // Get their email addresses and comittee roles into a hash-of-hashes $groups
+    $groups = array();
+    foreach ($uids as $uid) {
+        $user = user_load($uid);
+        $profile = profile2_load_by_user($uid, 'committee_profile');
+        if (!$profile) continue;
+        
+        $items = field_get_items('profile2', $profile, 'field_committee_roles');
+        if (!$items) continue;
+
+        foreach($items as $c_role) {
+            $node = node_load($c_role['target_id']);
+            $items2 = field_get_items('node', $node, 'field_email_address');
+            if (!$items2) continue;
+
+            $group_name  = $long_group_name = strtolower($items2[0]['email']);
+            $groups[$group_name][strtolower($user->mail)] = true;
+
+	    // FIXME we should probably check the domain of the group email is our domain
+	    if (!_eltmc_googlesync_endswith($group_name, "@$domain")) {
+		$errors[] = "<li>Group $group_name does not end with your Google Apps domain!</li>";
+	    }
+        }
+    }
+
+    if (count($errors) > 0) {
+	$message = t("<p>Update of Google group emails aborted because of problems detected:</p><ul>!errors</ul>",
+		     array('!errors' => implode($errors, "\n")));
+	return $message;
+    }	
+
+    // Add the administrator as a member of all groups
+    foreach($groups as $name => $group) {
+        $groups[$name][$groups_admin] = true;      
+    }
+
 
     // Get the user accounts and aliases
     // These require extra acccess rights, hence the aliases and users scopes added
@@ -443,44 +504,6 @@ function eltmc_googlesync_sync_groups_to_committee() {
     }
 //    dpm(print_r($gapps_groups, true)); // DEBUG
 
-
-    // Create an array $group_admins whose keys are the group admin(s).
-    // For now, we just allow a single (optional) shared group admin.
-    $groups_admin = strtolower(variable_get('eltmc_googlesync_groups_admin', ''));
-    $group_admins = array();
-    if ($groups_admin) $group_admins[$groups_admin] = true;
-
-
-    // Get the Committee's UIDs 
-    $uids = _eltmc_googlesync_uids_with_role('committee');
-
-    // Get their email addresses and comittee roles into a hash-of-hashes $groups
-    $groups = array();
-    foreach ($uids as $uid) {
-        $user = user_load($uid);
-        $profile = profile2_load_by_user($uid, 'committee_profile');
-        if (!$profile) continue;
-        
-        $items = field_get_items('profile2', $profile, 'field_committee_roles');
-        if (!$items) continue;
-
-        foreach($items as $c_role) {
-            $node = node_load($c_role['target_id']);
-            $items2 = field_get_items('node', $node, 'field_email_address');
-            if (!$items2) continue;
-
-            $group_name  = $long_group_name = strtolower($items2[0]['email']);
-            $groups[$group_name][strtolower($user->mail)] = true;
-
-	    // FIXME we should probably check the domain of the group email is our domain
-        }
-    }
-
-    // Add the administrator as a member of all groups
-    foreach($groups as $name => $group) {
-        $groups[$name][$groups_admin] = true;      
-    }
-
 //    dpm(print_r($groups, true)); // DEBUG
     $dryrun = variable_get('eltmc_googlesync_dryrun');
 
@@ -496,10 +519,17 @@ function eltmc_googlesync_sync_groups_to_committee() {
             continue;
         }
 
+	$group_name = _eltmc_googlesync_get_email_name($group);
+
         if (!array_key_exists($group, $gapps_groups)) {
             $delta[$group]['MODIFICATION'] = 'created';
             $gapps_groups[$group] = array();
-            if (!$dryrun) $gapps->createGroup($group);
+	    try {
+		if (!$dryrun) $gapps->createGroup($group_name, 'The '.ucfirst($group_name).' group');
+	    }
+	    catch (Exception $ex) {
+		$delta[$group]['MODIFICATION'] .= " - failed: ".$ex->getMessage();
+	    }
         }
 
         foreach ($users as $user => $ignored) {
@@ -509,16 +539,24 @@ function eltmc_googlesync_sync_groups_to_committee() {
             if (!array_key_exists($group, $delta) || !array_key_exists('MODIFICATION', $delta[$group]))
                 $delta[$group]['MODIFICATION'] = 'modified';
 
-            // If the user is in the $groups_admin array, make them an owner
-            if (array_key_exists($user, $group_admins)) {
-                $delta[$group][$user] = 'added as an owner';
-                if (!$dryrun) $gapps->addOwnerToGroup($user, $group);
-            }
-            else {
-                // Just make them a normal member
-                $delta[$group][$user] = 'added as a member';
-                if (!$dryrun) $gapps->addMemberToGroup($user, $group);
-            }
+	    try {
+		// If the user is in the $groups_admin array, make them an owner
+		if (array_key_exists($user, $group_admins)) {
+		    $delta[$group][$user] = 'added as an owner';
+		
+		    if (!$dryrun) $gapps->addOwnerToGroup($user, $group_name);
+		}
+		else {
+		    // Just make them a normal member
+		    $delta[$group][$user] = 'added as a member';
+		    
+		    if (!$dryrun) $gapps->addMemberToGroup($user, $group_name);
+//                  if (!$dryrun) $gapps->addRecipientToEmailList($user, $group_name);
+		}
+	    }
+	    catch (Exception $ex) {
+		$delta[$group][$user] .= " - failed: ".$ex->getMessage();
+	    }
         }
     }
 
@@ -532,31 +570,46 @@ function eltmc_googlesync_sync_groups_to_committee() {
             continue;
         }
 
+	$group_name = _eltmc_googlesync_get_email_name($group);
+
 	if (!array_key_exists($group, $groups)) {
 	    $delta[$group]['MODIFICATION'] = 'removed';
-	    if (!$dryrun) $gapps->deleteGroup($group);
+
+	    try {
+		if (!$dryrun) $gapps->deleteGroup($group_name);
+	    }
+	    catch (Exception $ex) {
+		$delta[$group]['MODIFICATION'] .= " - failed: ".$ex->getMessage();
+	    }
+
 	    continue;
 	}
 
         foreach ($users as $user => $ignored) {
-            if (!array_key_exists($user, $groups[$group])) {            
-                $delta[$group][$user] = 'removed';
-                if (!$dryrun) $gapps->removeMemberFromGroup($user, $group);
-            }
-            elseif (array_key_exists($user, $group_admins) && !$gapps->isOwner($user, $group)) {
-                // Promote user to owner
-		$delta[$group][$user] = 'promoted to owner';
-		if (!$dryrun) $gapps->addOwnerToGroup($user, $group);
+	    try {
+		if (!array_key_exists($user, $groups[$group])) {            
+		    $delta[$group][$user] = 'removed';
+		    
+		    if (!$dryrun) $gapps->removeMemberFromGroup($user, $group_name);
+		}
+		elseif (array_key_exists($user, $group_admins) && !$gapps->isOwner($user, $group_admins)) {
+		    // Promote user to owner
+		    $delta[$group][$user] = 'promoted to owner';
+		    if (!$dryrun) $gapps->addOwnerToGroup($user, $group_name);
+		}
+		elseif(!array_key_exists($user, $group_admins) && $gapps->isOwner($user, $group_name)) {
+		    // Demote user from owner
+		    $delta[$group][$user] = 'demoted to ordinary member';
+		    if (!$dryrun) $gapps->removeOwnerFromGroup($user, $group_name);
+		}
+		else {
+		    // Skip the rest of this loop body
+		    continue;
+		}
 	    }
-	    elseif(!array_key_exists($user, $group_admins) && $gapps->isOwner($user, $group)) {
-                // Demote user from owner
-		$delta[$group][$user] = 'demoted to ordinary member';
-		if (!$dryrun) $gapps->removeOwnerFromGroup($user, $group);
+	    catch (Exception $ex) {
+		$delta[$group][$user] .= " - failed: ".$ex->getMessage();
 	    }
-	    else {
-		// Skip the rest of this loop body
-		continue;
-            }
 
             if (!array_key_exists($group, $delta) || !array_key_exists('MODIFICATION', $delta[$group]))
                 $delta[$group]['MODIFICATION'] = 'modified';
