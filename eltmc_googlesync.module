@@ -286,9 +286,9 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
 	return $url;
     }
     catch(Zend_Oauth_Exception $ex) {
-	$message = t('eltmc_googlesync', "<p>Failed to get request token:</p><pre>%exception</pre>",
+	$message = t("<p>Failed to get request token:</p><pre>%exception</pre>",
 		     array('%exception' => $ex));
-	watchdog($message);
+	watchdog('eltmc_googlesync', $message);
 	drupal_set_message($message, 'error');
     }
 }
