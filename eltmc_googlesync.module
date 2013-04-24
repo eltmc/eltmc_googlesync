@@ -1,4 +1,5 @@
 <?php // -*- php -*-
+  // FIXME use libraries module
 // Add locally bundled libraries to include path, and include them.
 $eltmc_googlesync_module_libs = DRUPAL_ROOT .'/'. drupal_get_path('module', 'eltmc_googlesync') .'/libraries';
 if (FALSE == strpos(ini_get('include_path'), $eltmc_googlesync_module_libs)) {
@@ -339,6 +340,62 @@ function _eltmc_googlesync_uids_with_role($role, $active_user = TRUE) {
 
 
 
+/** 
+ * Find all committee_role nodes, and append them to the $groups hash,
+ * adding a recipient email for both $groups_admin_address, and all
+ * of the addresses listed in the field_copy_emails_to field.
+ *
+ * @param array $group_admin_addresses An array of recipients all the groups should send to.
+ * @return array An array mapping committee_role emails to recipient email addresses.
+ */
+function _eltmc_googlesync_create_recipient_map($group_admin_addresses) {
+    $groups = array();
+
+    // Get all the committee_role nodes
+    $query = new EntityFieldQuery();
+    $query
+    ->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'committee_role');
+
+
+    $result = $query->execute();
+
+    if (!isset($result['node'])) {
+	return null;
+    }
+
+    $roles_nids = array_keys($result['node']);
+    $roles = entity_load('node', $roles_nids);
+
+    // For each committee_role
+    foreach($roles as $role) {
+
+	// Get the role's email address
+	$items = field_get_items('node', $role, 'field_email_address');
+	if (!$items || count($items) == 0) continue;
+
+	// Mark the $groups_admin_address as a recipient
+	$email_address = strtolower($items[0]['email']);
+
+	foreach($group_admin_addresses as $admin_address) {
+	    $groups[$email_address][$admin_address] = true;
+	}
+	
+	// Get all the CC To field addresses
+	$items = field_get_items('node', $role, 'field_copy_emails_to');
+	if (!$items) continue;
+
+	foreach($items as $cc_address) {
+	    // Add this CC To address as another recipient
+	    $groups[$email_address][strtolower($cc_address['email'])] = true;
+	}
+    }
+    return $groups;
+}
+
+
+
+
 /**
  * Log in using $username, $password, into Google apps domain $domain.
  * If fails, throws a Zend_Gdata_App_AuthException .
@@ -417,13 +474,14 @@ function eltmc_googlesync_sync_groups_to_committee() {
     $group_admins = array();
     if ($groups_admin) $group_admins[$groups_admin] = true;
 
+    $groups = _eltmc_googlesync_create_recipient_map(array_keys($group_admins));
+
 
     // Get the Committee's UIDs 
     $uids = _eltmc_googlesync_uids_with_role('committee');
     $errors = array();
 
-    // Get their email addresses and comittee roles into a hash-of-hashes $groups
-    $groups = array();
+    // Add their email addresses and comittee roles into the hash-of-hashes $groups
     foreach ($uids as $uid) {
         $user = user_load($uid);
         $profile = profile2_load_by_user($uid, 'committee_profile');
@@ -452,11 +510,6 @@ function eltmc_googlesync_sync_groups_to_committee() {
 		     array('!errors' => implode($errors, "\n")));
 	return $message;
     }	
-
-    // Add the administrator as a member of all groups
-    foreach($groups as $name => $group) {
-        $groups[$name][$groups_admin] = true;      
-    }
 
 
     // Get the user accounts and aliases
