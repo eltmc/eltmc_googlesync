@@ -578,7 +578,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
             $delta[$group]['MODIFICATION'] = 'created';
             $gapps_groups[$group] = array();
 	    try {
-		if (!$dryrun) $gapps->createGroup($group_name, 'The '.ucfirst($group_name).' group');
+		if (!$dryrun) $gapps->createGroup($group_name, ucfirst($group_name), '', 'Anyone');
 	    }
 	    catch (Exception $ex) {
 		$delta[$group]['MODIFICATION'] .= " - failed: ".$ex->getMessage();
