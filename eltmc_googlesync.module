@@ -1,13 +1,51 @@
-    <?php // -*- php -*-
-// FIXME use libraries module
-// Add locally bundled libraries to include path, and include them.
-$eltmc_googlesync_module_libs = DRUPAL_ROOT .'/'. drupal_get_path('module', 'eltmc_googlesync') .'/libraries';
-if (FALSE == strpos(ini_get('include_path'), $eltmc_googlesync_module_libs)) {
-    if (!ini_set('include_path', ini_get('include_path') . ":$eltmc_googlesync_module_libs")) {
-        watchdog('eltmc_googlesync', "<p>Failed to change ini path to include Zend library</p>");
+<?php // -*- php -*-
+
+
+/**
+ * Implements hook_libraries_info().
+ *
+ * Defines the dependency on the Google API's PHP client library.
+ */
+function eltmc_googlesync_libraries_info() {
+
+    // Expected to be extracted into 'sites/all/libraries/google-api-php-client'.
+    $libraries['google-api-php-client'] = array(
+        'name' => 'Client Library for Google APIs',
+        'vendor url' => 'http://developers.google.com/api-client-library/php',
+        'download url' => 'https://github.com/google/google-api-php-client/archive/master.zip',
+        'version arguments' => array(
+            'file' => 'src/Google/Client.php',
+            'pattern' => '/LIBVER = [\'"]([\d.])*[\'"]/',
+        ),
+        'versions' => array(
+            '1.1.3' => array(),
+        ),
+        'files' => array(
+            'php' => array('src/Google/Client.php'),
+        ),
+    );
+
+    return $libraries;
+}
+
+
+function _eltmc_googlesync_libraries_load() {
+    $name = 'google-api-php-client';
+    if (($library = libraries_detect($name)) &&
+        !empty($library['installed'])) {
+        return true;
+    }
+    else {
+        // Something went wrong. :(
+        $error = $library['error'];
+        // Get a detailed (localized) error message.
+        $message = $library['error message'];
+        watchdog('eltmc_googlesync', $message);
+        drupal_set_message($message, $error);
+        return false;
     }
 }
-require_once "Zend/Loader.php";
+
 
 function _eltmc_googlesync_config() {
     global $base_url;
