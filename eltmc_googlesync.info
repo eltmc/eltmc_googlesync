@@ -1,7 +1,6 @@
 name = ELTMC Google-Sync
-description = Synchronises data in ELTMC's Drupal website with data in the ELTMC Google Apps domain
+description = Synchronises Committee members' profiles in ELTMC's Drupal website with data in the ELTMC Google Apps domain
 core = 7.x
-#dependencies[] = zend
-#dependencies[] = zend_gdata_gapps
+
 
 
