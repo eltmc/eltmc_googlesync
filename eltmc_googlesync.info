@@ -2,7 +2,7 @@ name = ELTMC Google-Sync
 description = Synchronises Committee members' profiles in ELTMC's Drupal website with data in the ELTMC Google Apps domain
 core = 7.x
 configure = admin/config/services/eltmc_googlesync
-dependencies[] = libraries
+dependencies[] = libraries (>=2)
 ; Libraries
 ; Requires the Google API PHP client
 ; http://developers.google.com/api-client-library/php
