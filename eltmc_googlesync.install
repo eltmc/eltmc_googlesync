@@ -1,5 +1,116 @@
 <?php
 
+/**
+ * @file
+ * eltmc_googlesync installation functions.
+ *
+ * Adapted from 
+ */
+
+/**
+ * Implementation of hook_requirements().
+ *
+ * Adapted from http://cgit.drupalcode.org/grammar_parser_lib/tree/gplib.install?h=7.x-2.x
+ */
+function eltmc_googlesync_requirements($phase) {
+    $requirements = array();
+    // Ensure translations don't break at install time.
+    $t = get_t();
+
+    if ($phase != 'runtime') {
+        // None of the following requirements is relevant outside of runtime.
+        return $requirements;
+    }
+    
+    $info = eltmc_googlesync_libraries_info();
+    $info = $info['google-api-php-client'];
+    $keys = array_keys($info['versions']);
+    $version = reset($keys);
+    $url = l('here', $info['download url']);
+    $message = $t('Install version @version of the Google API PHP Client library code (from !url) in a libraries directory such as "sites/all/libraries."',
+                  array('@version' => $version, '!url' => $url));
+    
+    $info = libraries_load('google-api-php-client');
+    if (!$info['loaded']) {
+        $requirements['n'] = array(
+            'severity' => REQUIREMENT_ERROR,
+            'title' => $t('Google API PHP Client version'),
+            'description' => $message,
+        );
+        if (isset($info['error']) &&
+            $info['error'] == 'not detected') {
+            $requirements['google_api_php_client_version']['value'] = $t('The version could not be detected');
+        }
+        elseif (isset($info['error']) &&
+                $info['error'] == 'not supported') {
+            $requirements['google_api_php_client_version']['value'] = $t('The installed version @version is not supported', array('@version' => $info['version']));
+        }
+    }
+    elseif(!$info['version'] || !version_compare($info['version'], $version, '>=')) {
+        $path = $info['library path'];
+        $requirements['google_api_php_client_version'] = array(
+            'severity' => REQUIREMENT_WARNING,
+            'title' => $t('Google API PHP Client version'),
+            'value' => $t('A version newer than the installed version @version is available', array('@version' => $info['version'])),
+            'description' => $message,
+        );
+    }
+    else {
+        $requirements['google_api_php_client_version'] = array(
+            'title' => $t('Google API PHP Client version'),
+            'value' => $info['version'],
+        );
+    }
+    
+    return $requirements;
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function phpmailer_uninstall() {
+  $mail_system = variable_get('mail_system', array('default-system' => 'DefaultMailSystem'));
+  $mail_system['default-system'] = 'DefaultMailSystem';
+  variable_set('mail_system', $mail_system);
+
+  variable_del('smtp_on');
+  variable_del('smtp_host');
+  variable_del('smtp_hostbackup');
+  variable_del('smtp_port');
+  variable_del('smtp_protocol');
+  variable_del('smtp_fromname');
+  variable_del('smtp_username');
+  variable_del('smtp_password');
+  variable_del('smtp_keepalive');
+  variable_del('smtp_debug');
+}
+
+/**
+ * Enable PHPMailer as default mail system if it has been before.
+ */
+function phpmailer_update_7000() {
+  // @todo Check whether the library exists?
+  if (strpos(variable_get('smtp_library', ''), 'phpmailer')) {
+    $mail_system = variable_get('mail_system', array('default-system' => 'DefaultMailSystem'));
+    $mail_system['default-system'] = 'DrupalPHPMailer';
+    variable_set('mail_system', $mail_system);
+    // PHPMailer was the default mail engine, so it should be safe to remove the
+    // variable.
+    variable_del('smtp_library');
+  }
+}
+
+/**
+ * Add support for the Mail System module.
+ */
+function phpmailer_update_7001() {
+  if (module_exists('mailsystem')) {
+    mailsystem_set(array('phpmailer' => 'DrupalPHPMailer'));
+  }
+}
+
+
+xxx
 function eltmc_googlesync_uninstall() {
     variable_del('eltmc_googlesync_domain');
     variable_del('eltmc_googlesync_consumerkey');
@@ -8,3 +119,6 @@ function eltmc_googlesync_uninstall() {
     variable_del('eltmc_googlesync_dryrun');
     variable_del('eltmc_googlesync_groups_admin');
 }
+
+
+
