@@ -1,5 +1,5 @@
-<?php // -*- php -*-
-  // FIXME use libraries module
+    <?php // -*- php -*-
+// FIXME use libraries module
 // Add locally bundled libraries to include path, and include them.
 $eltmc_googlesync_module_libs = DRUPAL_ROOT .'/'. drupal_get_path('module', 'eltmc_googlesync') .'/libraries';
 if (FALSE == strpos(ini_get('include_path'), $eltmc_googlesync_module_libs)) {
@@ -36,13 +36,13 @@ function _eltmc_googlesync_config() {
         'accessTokenUrl' => 'https://www.google.com/accounts/OAuthGetAccessToken',
         'consumerKey' => $oauth_consumerkey,
         'consumerSecret' => $oauth_consumersecret,
-        );
+    );
 
     return array(
         'oauth_config' => $oauth_config,
         'scopes' => $oauth_scopes,
         'domain' => $oauth_domain
-        );
+    );
 }
 
 
@@ -73,7 +73,7 @@ function eltmc_googlesync_menu() {
         'page arguments' => array('eltmc_googlesync_admin_form'),
         'access arguments' => array('access administration pages'),
         'type' => MENU_NORMAL_ITEM,
-        );
+    );
     
     return $items;
 }
@@ -95,72 +95,72 @@ function eltmc_googlesync_admin_form() {
     }
 
     $form = array(
-      'eltmc_googlesync_manage_domains' => array(
-          '#markup' => t("Before configuring this module, you will need to create a Google Apps ".
-                         "domain, which at the time of writing are unfortunatly no longer free ".
-                         "(see <a href='http://support.google.com/a/bin/answer.py?hl=en&answer=2855120'>".
-                         "here</a> for some more information).  You then need to add it to your ".
-                         "managed domains at <a href='https://accounts.google.com/ManageDomains'>".
-                         "https://accounts.google.com/ManageDomains</a>, and follow the steps to ".
-                         "obtain a Consumer Secret and Consumer Key."),
-          ),
-      'eltmc_googlesync_domain' => array(
-          '#type' => 'textfield',
-          '#title' => t('Google Apps domain name'),
-          '#default_value' => variable_get('eltmc_googlesync_domain', ''),
-          '#size' => 50,
-          '#maxlength' => 100,
-          '#description' => t("The name of your Google Apps domain"),
-          '#required' => TRUE,
-          ),
-      'eltmc_googlesync_consumerkey' => array(
-          '#type' => 'textfield',
-          '#title' => t('Google Apps Consumer Key'),
-          '#default_value' => variable_get('eltmc_googlesync_consumerkey', ''),
-          '#size' => 50,
-          '#maxlength' => 100,
-          '#description' => t("The 'OAuth Consumer Key' obtained from Google Apps."),
-          '#required' => TRUE,
-          ),
-      'eltmc_googlesync_consumersecret' => array(
-          '#type' => 'textfield',
-          '#title' => t('Google Apps Consumer Secret'),
-          '#default_value' => variable_get('eltmc_googlesync_consumersecret', ''),
-          '#size' => 50,
-          '#maxlength' => 100,
-          '#description' => t("The 'OAuth Consumer Secret' obtained from Google Apps."),
-          '#required' => TRUE,
-          ),
-      'eltmc_googlesync_groups_admin' => array(
-          '#type' => 'textfield',
-          '#title' => t('The groups admin email address.'),
-          '#default_value' => variable_get('eltmc_googlesync_groups_admin', ''),
-          '#size' => 50,
-          '#maxlength' => 100,
-          '#description' => t("If set, all groups will have this email address set as owner."),
-          '#required' => FALSE,
-          ),
-      'eltmc_googlesync_dryrun' => array(
-          '#type' => 'checkbox',
-          '#title' => t("Dry-run mode."),
-          '#default_value' => variable_get('eltmc_googlesync_dryrun', true),
-          '#description' => t("If checked, the module's action, when executed, won't actually modify the groups, just log what it would have done"),
-          '#required' => FALSE,
-          ),      
-      'eltmc_googlesync_action_note' => array(
-          '#markup' => "<p>You can bind the <i>eltmc_googlesync_sync_groups_to_committee_action</i> ".
-	  "to a trigger <a href='/admin/config/system/actions'>here</a>, ".
-	  "or if the <a href='http://drupal.org/project/rules'>Rules</a> module is installed, ".
-	  "probably more flexibly use that instead.</p>"
-          ),
-      'eltmc_googlesync_access_token_note' => array(
-          '#markup' => "<p>$access_token_note <b>Clicking 'Save' will refresh the authorization token.</b></p>"
-          ),
-      );
+        'eltmc_googlesync_manage_domains' => array(
+            '#markup' => t("Before configuring this module, you will need to create a Google Apps ".
+                           "domain, which at the time of writing are unfortunatly no longer free ".
+                           "(see <a href='http://support.google.com/a/bin/answer.py?hl=en&answer=2855120'>".
+                           "here</a> for some more information).  You then need to add it to your ".
+                           "managed domains at <a href='https://accounts.google.com/ManageDomains'>".
+                           "https://accounts.google.com/ManageDomains</a>, and follow the steps to ".
+                           "obtain a Consumer Secret and Consumer Key."),
+        ),
+        'eltmc_googlesync_domain' => array(
+            '#type' => 'textfield',
+            '#title' => t('Google Apps domain name'),
+            '#default_value' => variable_get('eltmc_googlesync_domain', ''),
+            '#size' => 50,
+            '#maxlength' => 100,
+            '#description' => t("The name of your Google Apps domain"),
+            '#required' => TRUE,
+        ),
+        'eltmc_googlesync_consumerkey' => array(
+            '#type' => 'textfield',
+            '#title' => t('Google Apps Consumer Key'),
+            '#default_value' => variable_get('eltmc_googlesync_consumerkey', ''),
+            '#size' => 50,
+            '#maxlength' => 100,
+            '#description' => t("The 'OAuth Consumer Key' obtained from Google Apps."),
+            '#required' => TRUE,
+        ),
+        'eltmc_googlesync_consumersecret' => array(
+            '#type' => 'textfield',
+            '#title' => t('Google Apps Consumer Secret'),
+            '#default_value' => variable_get('eltmc_googlesync_consumersecret', ''),
+            '#size' => 50,
+            '#maxlength' => 100,
+            '#description' => t("The 'OAuth Consumer Secret' obtained from Google Apps."),
+            '#required' => TRUE,
+        ),
+        'eltmc_googlesync_groups_admin' => array(
+            '#type' => 'textfield',
+            '#title' => t('The groups admin email address.'),
+            '#default_value' => variable_get('eltmc_googlesync_groups_admin', ''),
+            '#size' => 50,
+            '#maxlength' => 100,
+            '#description' => t("If set, all groups will have this email address set as owner."),
+            '#required' => FALSE,
+        ),
+        'eltmc_googlesync_dryrun' => array(
+            '#type' => 'checkbox',
+            '#title' => t("Dry-run mode."),
+            '#default_value' => variable_get('eltmc_googlesync_dryrun', true),
+            '#description' => t("If checked, the module's action, when executed, won't actually modify the groups, just log what it would have done"),
+            '#required' => FALSE,
+        ),      
+        'eltmc_googlesync_action_note' => array(
+            '#markup' => "<p>You can bind the <i>eltmc_googlesync_sync_groups_to_committee_action</i> ".
+	        "to a trigger <a href='/admin/config/system/actions'>here</a>, ".
+	        "or if the <a href='http://drupal.org/project/rules'>Rules</a> module is installed, ".
+	        "probably more flexibly use that instead.</p>"
+        ),
+        'eltmc_googlesync_access_token_note' => array(
+            '#markup' => "<p>$access_token_note <b>Clicking 'Save' will refresh the authorization token.</b></p>"
+        ),
+    );
 
-// FIXME add help explaining how to get the secret etc.
+    // FIXME add help explaining how to get the secret etc.
 
-  return system_settings_form($form);
+    return system_settings_form($form);
 }
 
 /**
@@ -171,7 +171,7 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
     if ($form_id != 'eltmc_googlesync_admin_form')
         return;
 
-    ## Add our handler to the default submit handlers
+## Add our handler to the default submit handlers
     $form['#submit'][] = 'eltmc_googlesync_request_access_token';
 
     // Bind the 'Save' submit button to this handler, which re-uses the default #submit handlers,
@@ -182,13 +182,13 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
 	    '#type' => 'submit',
 	    '#value' => 'Save and Refresh Token',
 	    '#submit' => $form['#submit'],
-	    ),
+	),
 	'update' => array(
 	    '#type' => 'submit',
 	    '#value' => 'Update Google Now',
 	    '#submit' => array('eltmc_googlesync_update_google_handler'),
-	    ),
-	);
+	),
+    );
 
     // Clear the default handler on the form itself.
     unset($form['#submit']);
@@ -207,7 +207,7 @@ function eltmc_googlesync_form_alter(&$form, $form_state, $form_id) {
             }
             
             $rtoken = unserialize($_SESSION['GOOGLE_REQUEST_TOKEN']);
-//            dpm("got request ". $_SESSION['GOOGLE_REQUEST_TOKEN']); // DEBUG
+            //            dpm("got request ". $_SESSION['GOOGLE_REQUEST_TOKEN']); // DEBUG
 
 	    try {
 		$consumer = new Zend_Oauth_Consumer($config['oauth_config']);
@@ -283,7 +283,7 @@ function eltmc_googlesync_request_access_token(&$form, &$form_state) {
 	$form_state['redirect'] = array(
 	    $url,
 	    array('external' => TRUE)
-	    );
+	);
 	return $url;
     }
     catch(Zend_Oauth_Exception $ex) {
@@ -306,8 +306,8 @@ function eltmc_googlesync_action_info() {
             'type' => 'system',
             'configurable' => FALSE,
             'triggers' => array('any'),
-            ),
-        );
+        ),
+    );
 } 
 
 
@@ -331,9 +331,9 @@ function _eltmc_googlesync_uids_with_role($role, $active_user = TRUE) {
         $my_rid = $role->rid;
     }
     $result = db_select('users_roles', 'ur')
-    ->fields('ur', array('uid'))
-    ->condition('ur.rid', $my_rid, '=')
-    ->execute();
+        ->fields('ur', array('uid'))
+        ->condition('ur.rid', $my_rid, '=')
+        ->execute();
 
     return $result->fetchCol();
 }
@@ -354,8 +354,8 @@ function _eltmc_googlesync_create_recipient_map($group_admin_addresses) {
     // Get all the committee_role nodes
     $query = new EntityFieldQuery();
     $query
-    ->entityCondition('entity_type', 'node')
-    ->entityCondition('bundle', 'committee_role');
+        ->entityCondition('entity_type', 'node')
+        ->entityCondition('bundle', 'committee_role');
 
 
     $result = $query->execute();
@@ -555,9 +555,9 @@ function eltmc_googlesync_sync_groups_to_committee() {
             }
         }
     }
-//    dpm(print_r($gapps_groups, true)); // DEBUG
+    //    dpm(print_r($gapps_groups, true)); // DEBUG
 
-//    dpm(print_r($groups, true)); // DEBUG
+    //    dpm(print_r($groups, true)); // DEBUG
     $dryrun = variable_get('eltmc_googlesync_dryrun');
 
     $delta = array();
@@ -596,7 +596,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
 		// If the user is in the $groups_admin array, make them an owner
 		if (array_key_exists($user, $group_admins)) {
 		    $delta[$group][$user] = 'added as an owner';
-		
+		    
 		    if (!$dryrun) $gapps->addOwnerToGroup($user, $group_name);
 		}
 		else {
@@ -604,7 +604,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
 		    $delta[$group][$user] = 'added as a member';
 		    
 		    if (!$dryrun) $gapps->addMemberToGroup($user, $group_name);
-//                  if (!$dryrun) $gapps->addRecipientToEmailList($user, $group_name);
+                    //                  if (!$dryrun) $gapps->addRecipientToEmailList($user, $group_name);
 		}
 	    }
 	    catch (Exception $ex) {
@@ -669,7 +669,7 @@ function eltmc_googlesync_sync_groups_to_committee() {
         }
     }
 
-    # HTMLise the $delta entries. Report the changes.
+# HTMLise the $delta entries. Report the changes.
     ksort($delta);
     $log = '<ul>';
     foreach($delta as $group => $groupdelta) {
