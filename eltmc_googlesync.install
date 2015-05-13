@@ -110,7 +110,6 @@ function phpmailer_update_7001() {
 }
 
 
-xxx
 function eltmc_googlesync_uninstall() {
     variable_del('eltmc_googlesync_domain');
     variable_del('eltmc_googlesync_consumerkey');
